@@ -31,12 +31,12 @@ try {
         collectLegacyNotes,
         loadDataSource,
         // askBeforeDeleteOldNotes,
-        deleteLegacyNotes,
         collectAllSourceNotes,
         filterSourceNotesByLatestChange,
         formatMarkdown,
         saveDataSource,
         filterSourceNotesByTagPublic,
+        deleteLegacyNotes,
         copyPublicNotesToTarget,
         commitAndPush
     )();
@@ -102,30 +102,6 @@ function collectLegacyNotes(args = []) {
 //     // args.answers = prompt(questions);
 //     return args;
 // }
-
-/**
- * @param args
- * @returns {{}}
- */
-function deleteLegacyNotes(args = []) {
-    args.fileLimit = 40;
-    if (args.previousNoteFiles.length > args.fileLimit) {
-        throw `Too many files to delete aborting.
-        File limit was set to ${args.fileLimit}`;
-    }
-    args.previousNoteFiles.map(fileName => {
-        const fileNameAndPath = path.join(args.targetNotePath, fileName);
-        if (fs.existsSync(fileNameAndPath)) {
-            fs.unlink(path.join(args.targetNotePath, fileName), err => {
-                if (err) throw err;
-            });
-        } else {
-            throw `file does not exist "${fileNameAndPath}"`;
-        }
-    });
-
-    return args;
-}
 
 /**
  * @param args
@@ -311,6 +287,30 @@ function filterSourceNotesByTagPublic(args = []) {
         const ast = fm(content);
         if (ast.attributes.public) {
             return fileName;
+        }
+    });
+
+    return args;
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function deleteLegacyNotes(args = []) {
+    args.fileLimit = 40;
+    if (args.previousNoteFiles.length > args.fileLimit) {
+        throw `Too many files to delete aborting.
+        File limit was set to ${args.fileLimit}`;
+    }
+    args.previousNoteFiles.map(fileName => {
+        const fileNameAndPath = path.join(args.targetNotePath, fileName);
+        if (fs.existsSync(fileNameAndPath)) {
+            fs.unlink(path.join(args.targetNotePath, fileName), err => {
+                if (err) throw err;
+            });
+        } else {
+            throw `file does not exist "${fileNameAndPath}"`;
         }
     });
 
