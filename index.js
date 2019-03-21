@@ -3,7 +3,6 @@ const fs = require('fs');
 const fse = require('fs-extra');
 const path = require('path');
 const fm = require('front-matter');
-const git = require('simple-git');
 const vfile = require('to-vfile');
 const { prompt } = require('prompts');
 const pipe = require('./pipe');
@@ -16,6 +15,7 @@ const report = require('vfile-reporter');
 const yaml = require('js-yaml');
 const util = require('util');
 const crypto = require('crypto');
+const exec = require('child_process').exec;
 
 const baseSourcePath = 'Documents/Notes';
 const baseTargetPath = 'Projects/NodeJs/notes.omic.ch';
@@ -37,9 +37,8 @@ try {
         formatMarkdown,
         saveDataSource,
         filterSourceNotesByTagPublic,
-        copyPublicNotesToTarget
-        // gitCommit,
-        // gitPush,
+        copyPublicNotesToTarget,
+        commitAndPush
     )();
 } catch (exception) {
     console.log(exception);
@@ -336,25 +335,40 @@ function copyPublicNotesToTarget(args = []) {
     return args;
 }
 
-// /**
-//  * @param args
-//  * @returns {{}}
-//  */
-// function gitCommit(args = []) {
-//     const repository = git(args.targetPath);
-//     repository.add('./*').commit(`Update notes ${formatDatetime(new Date())}`);
-//     return args;
-// }
-//
-// /**
-//  * @param args
-//  * @returns {{}}
-//  */
-// function gitPush(args = []) {
-//     const repository = git(args.targetPath);
-//     repository.push();
-//     return args;
-// }
+/**
+ * @param args
+ * @returns {{}}
+ */
+function commitAndPush(args = []) {
+    const cd = `cd ${args.targetPath}`;
+    let command = `${cd}; git status -s`;
+    const dir = exec(command, (err, stdout) => {
+        console.log('');
+        console.log(stdout);
+        if (stdout) {
+            console.log('');
+            console.log('Committing...');
+
+            // Commit
+            const message = `Update notes ${formatDatetime(new Date())}`;
+            command = `${cd}; git add .; git commit -s -m "${message}"`;
+            exec(command, (err, stdout) => {
+                console.log('Pushing...');
+                command = `${cd}; git push`;
+                exec(command, (err, stdout) => {
+                    if (err) {
+                        console.log(err);
+                    }
+                    console.log(stdout);
+                });
+            });
+        } else {
+            console.log('');
+            console.log('Nothing new to commit...');
+        }
+    });
+    return args;
+}
 
 /**
  *

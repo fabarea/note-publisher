@@ -19,7 +19,6 @@
     "remark-parse": "^6.0.0",
     "remark-stringify": "^6.0.0",
     "remark-toc": "^5.0.0",
-    "simple-git": "^1.105.0",
     "to-vfile": "^5.0.1",
     "unified": "^7.0.0",
     "unified-stream": "^1.0.2",
