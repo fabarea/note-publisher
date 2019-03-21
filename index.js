@@ -15,20 +15,31 @@ const winston = require('winston');
 const report = require('vfile-reporter');
 const yaml = require('js-yaml');
 const util = require('util');
+const crypto = require('crypto');
+
+const baseSourcePath = 'Documents/Notes';
+const baseTargetPath = 'Projects/NodeJs/notes.omic.ch';
+const relativeTargetPath = 'src/pages/notes';
+
+// const baseSourcePath = 'SharedVirginie/Diaconat/Formation/Notes';
+// const baseTargetPath = 'Projects/NodeJs/diaconat.omic.ch';
+// const relativeTargetPath = 'src/pages/notes';
 
 try {
     pipe(
         bootstrap,
-        collectOldNotes,
+        collectLegacyNotes,
+        loadDataSource,
         // askBeforeDeleteOldNotes,
-        deleteOldNotes,
+        deleteLegacyNotes,
         collectAllSourceNotes,
-        filterChangedSourceNotes,
+        filterSourceNotesByLatestChange,
         formatMarkdown,
-        filterPublicSourceNotes,
-        copySourceNotesToTarget,
-        gitCommit,
-        gitPush,
+        saveDataSource,
+        filterSourceNotesByTagPublic,
+        copyPublicNotesToTarget
+        // gitCommit,
+        // gitPush,
     )();
 } catch (exception) {
     console.log(exception);
@@ -40,14 +51,10 @@ try {
  */
 function bootstrap(args = []) {
     // Define variables
-    args.basePath = path.join(process.env.HOME, 'Documents/Notes');
-
-    args.targetPath = path.join(
-        process.env.HOME,
-        'Projects/NodeJs/gatsby-starter-netlify-cms'
-    );
-
-    args.targetNotePath = path.join(args.targetPath, 'src/pages/notes');
+    args.basePath = path.join(process.env.HOME, baseSourcePath);
+    args.targetPath = path.join(process.env.HOME, baseTargetPath);
+    args.targetNotePath = path.join(args.targetPath, relativeTargetPath);
+    args.dataSourcePath = path.join(__dirname, '/dataSource.json');
     return args;
 }
 
@@ -55,7 +62,23 @@ function bootstrap(args = []) {
  * @param args
  * @returns {{}}
  */
-function collectOldNotes(args = []) {
+function loadDataSource(args = []) {
+    // If data source does not exist, create it.
+    if (!fs.existsSync(args.dataSourcePath)) {
+        args.dataSource = {};
+        saveDataSource(args);
+    }
+
+    const content = fs.readFileSync(args.dataSourcePath, 'utf8');
+    args.dataSource = JSON.parse(content);
+    return args;
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function collectLegacyNotes(args = []) {
     args.previousNoteFiles = getFilesFromPath(args.targetNotePath, '.md');
     return args;
 }
@@ -85,10 +108,10 @@ function collectOldNotes(args = []) {
  * @param args
  * @returns {{}}
  */
-function deleteOldNotes(args = []) {
+function deleteLegacyNotes(args = []) {
     args.fileLimit = 40;
     if (args.previousNoteFiles.length > args.fileLimit) {
-        throw `Too many files to delete aborting. 
+        throw `Too many files to delete aborting.
         File limit was set to ${args.fileLimit}`;
     }
     args.previousNoteFiles.map(fileName => {
@@ -118,7 +141,7 @@ function collectAllSourceNotes(args = []) {
  * @param args
  * @returns {{}}
  */
-function filterChangedSourceNotes(args = []) {
+function filterSourceNotesByLatestChange(args = []) {
     const sourceNotes = args.sourceNotes;
     args.sourceNotes = sourceNotes.filter(fileName => {
         const fileNameAndPath = path.join(args.basePath, fileName);
@@ -169,20 +192,61 @@ function formatMarkdown(args = []) {
             .process(vfile.readSync(sourceNoteFileNameAndPath), (err, file) => {
                 const logger = getLogger();
                 logger.info(`${sourceNoteFileNameAndPath} formatted!`);
-                let content = String(file);
 
-                content = processFrontMatter(
-                    content,
-                    sourceNoteFileNameAndPath
-                );
-                content = processLinks(content);
+                const rawContent = fs.readFileSync(file.path, 'utf8');
+                // const rawContent = file.contents.trim(); // VFile object. Bug: not fully the same content.
+                const rawMd5Value = checksum(rawContent); // raw content
 
-                fs.writeFileSync(sourceNoteFileNameAndPath, content, err => {
-                    if (err) throw err;
-                    console.log("It's saved!");
-                });
+                if (
+                    rawMd5Value !== args.dataSource[sourceNoteFileNameAndPath]
+                ) {
+                    let content = processFrontMatter(
+                        rawContent,
+                        sourceNoteFileNameAndPath
+                    );
+
+                    // Reformat markdown
+                    content = formatMarkdownLinks(content);
+
+                    // Replace line ending and other value
+                    content = content.replace(/\r/g, '\n');
+                    content = content.replace(/\rn/g, '\n');
+
+                    // Store
+                    args.dataSource[sourceNoteFileNameAndPath] = checksum(
+                        content
+                    );
+
+                    fs.writeFileSync(
+                        sourceNoteFileNameAndPath,
+                        content,
+                        err => {
+                            if (err) throw err;
+                            console.log("It's saved!");
+                        }
+                    );
+
+                    const fileName = basename(sourceNoteFileNameAndPath);
+                    console.log(`Formatted ${fileName}`);
+                }
             });
     });
+
+    return args;
+}
+
+/**
+ * @returns {{}}
+ */
+function saveDataSource(args = []) {
+    fs.writeFileSync(
+        args.dataSourcePath,
+        JSON.stringify(args.dataSource),
+        err => {
+            if (err) throw err;
+            console.log("It's saved!");
+        }
+    );
 
     return args;
 }
@@ -191,7 +255,7 @@ function formatMarkdown(args = []) {
  * @param {string} content
  * @returns {string}
  */
-function processLinks(content) {
+function formatMarkdownLinks(content) {
     let pattern = new RegExp(`>\n<`, 'mg');
 
     if (content.match(pattern)) {
@@ -230,7 +294,7 @@ function processFrontMatter(content, sourceNoteFileNameAndPath) {
         content = `---\n${newFrontMatter}---\n\n${content}`;
     }
 
-    return content;
+    return content.trim();
 }
 
 /**
@@ -239,7 +303,7 @@ function processFrontMatter(content, sourceNoteFileNameAndPath) {
  * @param args
  * @returns {{}}
  */
-function filterPublicSourceNotes(args = []) {
+function filterSourceNotesByTagPublic(args = []) {
     const files = getFilesFromPath(args.basePath, '.md');
     args.publicSourceNotes = files.filter(fileName => {
         const fileNameAndPath = path.join(args.basePath, fileName);
@@ -258,7 +322,8 @@ function filterPublicSourceNotes(args = []) {
  * @param args
  * @returns {{}}
  */
-function copySourceNotesToTarget(args = []) {
+function copyPublicNotesToTarget(args = []) {
+    console.log('');
     args.publicSourceNotes.map(fileName => {
         const sourceNoteFileNameAndPath = path.join(args.basePath, fileName);
         const targetFileNameAndPath = path.join(
@@ -266,29 +331,30 @@ function copySourceNotesToTarget(args = []) {
             fileName.replace('--', '')
         );
         fse.copySync(sourceNoteFileNameAndPath, targetFileNameAndPath);
+        console.log(`Published ${fileName}`);
     });
     return args;
 }
 
-/**
- * @param args
- * @returns {{}}
- */
-function gitCommit(args = []) {
-    const repository = git(args.targetPath);
-    repository.add('./*').commit(`Update notes ${formatDatetime(new Date())}`);
-    return args;
-}
-
-/**
- * @param args
- * @returns {{}}
- */
-function gitPush(args = []) {
-    const repository = git(args.targetPath);
-    repository.push();
-    return args;
-}
+// /**
+//  * @param args
+//  * @returns {{}}
+//  */
+// function gitCommit(args = []) {
+//     const repository = git(args.targetPath);
+//     repository.add('./*').commit(`Update notes ${formatDatetime(new Date())}`);
+//     return args;
+// }
+//
+// /**
+//  * @param args
+//  * @returns {{}}
+//  */
+// function gitPush(args = []) {
+//     const repository = git(args.targetPath);
+//     repository.push();
+//     return args;
+// }
 
 /**
  *
@@ -361,7 +427,8 @@ function getUpdatedFrontMatter(content, fileName) {
     // Update the modification date
     let modifiedTime = getModifiedTime(fileName);
     ast.attributes.date = modifiedTime;
-    ast.attributes.timeStamp = modifiedTime.getTime();
+    // ast.attributes.timeStamp = modifiedTime.getTime();
+    delete ast.attributes.timeStamp;
 
     // Define a title if not yet defined
     if (!ast.attributes.title) {
@@ -381,11 +448,30 @@ function getUpdatedFrontMatter(content, fileName) {
 }
 
 /**
+ *
+ * @param content
+ * @returns {PromiseLike<ArrayBuffer>}
+ */
+function checksum(content) {
+    return crypto
+        .createHash('md5')
+        .update(content, 'utf8')
+        .digest('hex');
+}
+
+/**
  * @param string
  * @returns {string}
  */
 function capitalizeFirstLetter(string) {
     return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+/**
+ * @param {string} file
+ */
+function basename(file) {
+    return file.split('/').reverse()[0];
 }
 
 /**
