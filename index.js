@@ -202,7 +202,7 @@ function formatMarkdown(args = []) {
                     );
 
                     const fileName = basename(sourceNoteFileNameAndPath);
-                    console.log(`Formatted ${fileName}`);
+                    console.log(`Updated ${fileName}`);
                 }
             });
     });
