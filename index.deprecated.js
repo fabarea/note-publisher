@@ -21,13 +21,24 @@ const baseSourcePath = 'Sync/Notes/public'
 const baseTargetPath = 'Projects/NodeJs/notes.omic.ch'
 const relativeTargetPath = 'src/pages/notes'
 
+// const baseSourcePath = 'SharedVirginie/Diaconat/Formation/Notes';
+// const baseTargetPath = 'Projects/NodeJs/diaconat.omic.ch';
+// const relativeTargetPath = 'src/pages/notes';
+
 try {
   pipe(
     bootstrap,
+    collectLegacyNotes,
     loadDataSource,
+    askBeforeDeleteOldNotes,
     collectAllSourceNotes,
-    formatMarkdown
-    // saveDataSource
+    filterSourceNotesByLatestChange,
+    formatMarkdown,
+    saveDataSource,
+    filterSourceNotesByTagPublic,
+    deleteLegacyNotes,
+    copyPublicNotesToTarget,
+    commitAndPush
   )()
 } catch (exception) {
   console.log(exception)
@@ -66,8 +77,59 @@ function loadDataSource(args = []) {
  * @param args
  * @returns {{}}
  */
+function collectLegacyNotes(args = []) {
+  args.previousNoteFiles = getFilesFromPath(args.targetNotePath, '.md')
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function askBeforeDeleteOldNotes(args = []) {
+  args.answers = {}
+  const questions = [
+    {
+      type: 'confirm',
+      name: 'confirmed',
+      message: `Sure to delete files in ${args.targetNotePath} (${args.previousNoteFiles.length})`
+    }
+  ]
+
+  // Does not work well!
+  // args.answers = prompt(questions);
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
 function collectAllSourceNotes(args = []) {
   args.sourceNotes = getFilesFromPath(args.basePath, '.md')
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function filterSourceNotesByLatestChange(args = []) {
+  const sourceNotes = args.sourceNotes
+  args.sourceNotes = sourceNotes.filter(fileName => {
+    const fileNameAndPath = path.join(args.basePath, fileName)
+
+    const content = fs.readFileSync(fileNameAndPath, 'utf8')
+    const ast = fm(content)
+
+    let roundedTime = roundTime(ast.attributes.timeStamp)
+    let roundedModifiedTime = roundTime(getModifiedTime(fileNameAndPath).getTime())
+
+    if (roundedTime !== roundedModifiedTime) {
+      return fileNameAndPath
+    }
+  })
+
   return args
 }
 
@@ -186,6 +248,101 @@ function processFrontMatter(content, sourceNoteFileNameAndPath) {
   }
 
   return content.trim()
+}
+
+/**
+ * From the bunch of notes filer the ones who has the attribute "public".
+ *
+ * @param args
+ * @returns {{}}
+ */
+function filterSourceNotesByTagPublic(args = []) {
+  const files = getFilesFromPath(args.basePath, '.md')
+  args.publicSourceNotes = files.filter(fileName => {
+    const fileNameAndPath = path.join(args.basePath, fileName)
+
+    const content = fs.readFileSync(fileNameAndPath, 'utf8')
+    const ast = fm(content)
+    if (ast.attributes.public) {
+      return fileName
+    }
+  })
+
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function deleteLegacyNotes(args = []) {
+  args.fileLimit = 40
+  if (args.previousNoteFiles.length > args.fileLimit) {
+    throw `Too many files to delete aborting.
+        File limit was set to ${args.fileLimit}`
+  }
+  args.previousNoteFiles.map(fileName => {
+    const fileNameAndPath = path.join(args.targetNotePath, fileName)
+    if (fs.existsSync(fileNameAndPath)) {
+      fs.unlink(path.join(args.targetNotePath, fileName), err => {
+        if (err) throw err
+      })
+    } else {
+      throw `file does not exist "${fileNameAndPath}"`
+    }
+  })
+
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function copyPublicNotesToTarget(args = []) {
+  console.log('')
+  args.publicSourceNotes.map(fileName => {
+    const sourceNoteFileNameAndPath = path.join(args.basePath, fileName)
+    const targetFileNameAndPath = path.join(args.targetNotePath, fileName.replace('--', ''))
+    fse.copySync(sourceNoteFileNameAndPath, targetFileNameAndPath)
+    console.log(`Published ${fileName}`)
+  })
+  return args
+}
+
+/**
+ * @param args
+ * @returns {{}}
+ */
+function commitAndPush(args = []) {
+  const cd = `cd ${args.targetPath}`
+  let command = `${cd}; git status -s`
+  const dir = exec(command, (err, stdout) => {
+    console.log('')
+    console.log(stdout)
+    if (stdout) {
+      console.log('')
+      console.log('Committing...')
+
+      // Commit
+      const message = `Update notes ${formatDatetime(new Date())}`
+      command = `${cd}; git add .; git commit -s -m "${message}"`
+      exec(command, (err, stdout) => {
+        console.log('Pushing...')
+        command = `${cd}; git push`
+        exec(command, (err, stdout) => {
+          if (err) {
+            console.log(err)
+          }
+          console.log(stdout)
+        })
+      })
+    } else {
+      console.log('')
+      console.log('Nothing new to commit...')
+    }
+  })
+  return args
 }
 
 /**

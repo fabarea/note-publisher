@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "exec": "node index.js",
     "build-native": "./node_modules/pkg/lib-es5/bin.js -t node9-macos-x64 index.js"
   },
   "author": "",

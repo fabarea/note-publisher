@@ -1,6 +1,7 @@
 ## Note Publisher
 
-Private projet to format and publish my markdown notes.  
+
+Private project to format and publish my markdown notes.  
 
 Format to my convenience a markdown file
  
